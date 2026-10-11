@@ -95,14 +95,26 @@ class Handler(BaseHTTPRequestHandler):
                 query = str(data.get("query", "")).strip()
                 if not query or len(query) > 200:
                     raise ValueError("请输入有效地点")
-                params = urlencode({"q": query, "format": "jsonv2", "limit": 5, "addressdetails": 1})
-                request = Request("https://nominatim.openstreetmap.org/search?" + params,
+                params = urlencode({"q": query, "limit": 5})
+                request = Request("https://photon.komoot.io/api/?" + params,
                                   headers={"User-Agent": "RouteStudio/2.0 local location test tool"})
                 with urlopen(request, timeout=10) as response:
-                    results = json.loads(response.read(1_000_000).decode("utf-8"))
-                self.json({"results": [{"name": str(item.get("display_name", ""))[:300],
-                                         "lat": float(item["lat"]), "lng": float(item["lon"])}
-                                        for item in results]})
+                    payload = json.loads(response.read(1_000_000).decode("utf-8"))
+                results = []
+                for item in payload.get("features", []):
+                    props = item.get("properties", {})
+                    coords = item.get("geometry", {}).get("coordinates", [])
+                    if not isinstance(coords, list) or len(coords) < 2:
+                        continue
+                    try:
+                        lat, lng = float(coords[1]), float(coords[0])
+                    except (TypeError, ValueError):
+                        continue
+                    parts = [props.get("name"), props.get("street"), props.get("city"),
+                             props.get("state"), props.get("country")]
+                    label = ", ".join(str(part) for part in dict.fromkeys(x for x in parts if x))
+                    results.append({"name": label[:300], "lat": lat, "lng": lng})
+                self.json({"results": results})
             elif action in {"route", "clear-route", "settings", "connect", "pair", "disconnect", "start", "pause", "stop", "position"}:
                 self.json(self.server.controller.call(action, data))
             else:
